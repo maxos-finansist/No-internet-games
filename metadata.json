@@ -1,0 +1,6 @@
+{
+  "name": "Offline Arcade",
+  "description": "A collection of classic retro games that you can play entirely offline without an internet connection, including Snake, Tic-Tac-Toe, and Memory Match.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
