@@ -32,4 +32,3 @@ val SophisticatedOutline = Color(0xFF49454F)
 val SophisticatedText = Color(0xFFE6E1E5)
 val SophisticatedSubtext = Color(0xFFCAC4D0)
 val SophisticatedAccent = Color(0xFF4F378B)
-

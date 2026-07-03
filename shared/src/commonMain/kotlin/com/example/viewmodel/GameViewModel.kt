@@ -1,13 +1,11 @@
 package com.example.viewmodel
 
-import android.app.Application
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.data.GameDatabase
-import com.example.data.GameRepository
+import com.example.data.GameScoreRepository
 import com.example.data.GameScore
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -39,9 +37,7 @@ data class MemoryCard(
     val isMatched: Boolean = false
 )
 
-class GameViewModel(application: Application) : AndroidViewModel(application) {
-
-    private val repository: GameRepository
+class GameViewModel(private val repository: GameScoreRepository) : ViewModel() {
     
     // Database scores and high scores
     val allScores: StateFlow<List<GameScore>>
@@ -51,9 +47,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     val sudokuHighScore: StateFlow<Int>
 
     init {
-        val database = GameDatabase.getDatabase(application)
-        repository = GameRepository(database.gameScoreDao())
-        
         allScores = repository.getAllScores().stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
@@ -406,7 +399,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var isEvaluatingMatch = false
 
     fun resetMemoryGame() {
-        // Pairs of indices (0 to 7) representing 8 unique icons
         val iconIndices = (0..7).flatMap { listOf(it, it) }.shuffled()
         memoryCards = iconIndices.mapIndexed { index, iconId ->
             MemoryCard(id = index, iconIndex = iconId)
@@ -423,17 +415,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val card = memoryCards[index]
         if (card.isFlipped || card.isMatched) return
 
-        // Flip selected card
         val newCards = memoryCards.toMutableList()
         newCards[index] = card.copy(isFlipped = true)
         memoryCards = newCards
 
         val firstIndex = firstFlippedIndex
         if (firstIndex == null) {
-            // First card of pair
             firstFlippedIndex = index
         } else {
-            // Second card of pair
             memoryMoves++
             firstFlippedIndex = null
             isEvaluatingMatch = true
@@ -442,7 +431,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             val secondCard = memoryCards[index]
 
             if (firstCard.iconIndex == secondCard.iconIndex) {
-                // Match Found!
                 viewModelScope.launch {
                     delay(400)
                     val matchedCards = memoryCards.toMutableList()
@@ -457,7 +445,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             } else {
-                // No Match - Flip back after delay
                 viewModelScope.launch {
                     delay(800)
                     val resetCards = memoryCards.toMutableList()
@@ -472,7 +459,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun onMemoryGameWon() {
         isMemoryGameOver = true
-        // Calculate dynamic retro score: 100 base score, minus 2 for each extra move, floor at 10
         val finalScore = (100 - (memoryMoves - 8) * 4).coerceIn(10, 100)
         viewModelScope.launch {
             repository.insertScore("MEMORY", finalScore)
@@ -495,7 +481,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         private set
     var selectedSudokuIndex by mutableStateOf(-1)
         private set
-    var sudokuDifficulty by mutableStateOf("EASY") // "EASY", "MEDIUM", "HARD"
+    var sudokuDifficulty by mutableStateOf("EASY")
         private set
     var isSudokuGameOver by mutableStateOf(false)
         private set
@@ -541,11 +527,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         sudokuErrors = 0
         selectedSudokuIndex = -1
 
-        // Create a resolved board
         val solved = Array(9) { IntArray(9) { 0 } }
         fillSudoku(solved)
 
-        // Store solution
         val solutionList = mutableListOf<Int>()
         for (r in 0 until 9) {
             for (c in 0 until 9) {
@@ -554,7 +538,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
         sudokuSolutionBoard = solutionList
 
-        // Remove elements to create puzzle
         val puzzle = Array(9) { IntArray(9) { 0 } }
         for (r in 0 until 9) {
             for (c in 0 until 9) {
@@ -565,7 +548,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val cellsToRemove = when (difficulty) {
             "EASY" -> 35
             "MEDIUM" -> 46
-            else -> 54 // "HARD"
+            else -> 54
         }
 
         var removed = 0
@@ -606,7 +589,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                             board[row][col] = 0
                         }
                     }
-                    return false // backtrack
+                    return false
                 }
             }
         }
@@ -614,21 +597,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun isSudokuSafe(board: Array<IntArray>, row: Int, col: Int, num: Int): Boolean {
-        // Row check
         for (d in 0 until 9) {
             if (board[row][d] == num) {
                 return false
             }
         }
 
-        // Column check
         for (r in 0 until 9) {
             if (board[r][col] == num) {
                 return false
             }
         }
 
-        // Box check
         val boxRowStart = row - row % 3
         val boxColStart = col - col % 3
         for (r in boxRowStart until boxRowStart + 3) {
@@ -643,7 +623,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectSudokuCell(index: Int) {
         if (isSudokuGameOver || isSudokuPaused) return
-        // Only allow selecting non-given cells
         if (sudokuOriginalBoard[index] == 0) {
             selectedSudokuIndex = index
         }
@@ -652,21 +631,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun inputSudokuNumber(num: Int) {
         val index = selectedSudokuIndex
         if (index == -1 || isSudokuGameOver || isSudokuPaused) return
-        if (sudokuOriginalBoard[index] != 0) return // Given cell, cannot edit
+        if (sudokuOriginalBoard[index] != 0) return
 
         val currentList = sudokuCurrentBoard.toMutableList()
         currentList[index] = num
         sudokuCurrentBoard = currentList
 
-        // Check if correct against solution
         if (num != 0 && num != sudokuSolutionBoard[index]) {
-            // Mistake!
             sudokuErrors++
             if (sudokuErrors >= 3) {
                 onSudokuGameOver(won = false)
             }
         } else {
-            // Check win condition (all cells filled correctly)
             if (sudokuCurrentBoard == sudokuSolutionBoard) {
                 onSudokuGameOver(won = true)
             }
@@ -687,8 +663,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         isSudokuGameOver = true
         stopSudokuTimer()
         if (won) {
-            // Score = 5000 base - (time in seconds)
-            // Harder difficulty gives extra base points!
             val difficultyBonus = when (sudokuDifficulty) {
                 "MEDIUM" -> 1000
                 "HARD" -> 2000
