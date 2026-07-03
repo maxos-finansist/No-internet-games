@@ -107,6 +107,7 @@ fun ArcadeApp(
             ActiveGame.SNAKE -> SnakeScreen(viewModel = viewModel)
             ActiveGame.TIC_TAC_TOE -> TicTacToeScreen(viewModel = viewModel)
             ActiveGame.MEMORY -> MemoryScreen(viewModel = viewModel)
+            ActiveGame.SUDOKU -> SudokuScreen(viewModel = viewModel)
         }
     }
 }
@@ -279,7 +280,7 @@ fun MainMenuScreen(
                     color = SophisticatedText
                 )
                 Text(
-                    text = "3 offline games",
+                    text = "4 offline games",
                     fontSize = 12.sp,
                     color = SophisticatedPrimary
                 )
@@ -316,7 +317,7 @@ fun MainMenuScreen(
                     )
                 }
 
-                // Game Row 2: Cyber Match & Stats
+                // Game Row 2: Cyber Match & Cyber Sudoku
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -330,7 +331,22 @@ fun MainMenuScreen(
                         modifier = Modifier.weight(1f),
                         onClick = { viewModel.selectGame(ActiveGame.MEMORY) }
                     )
-                    
+                    SophisticatedGameTile(
+                        title = "Cyber Sudoku",
+                        tagline = "Grid & Numbers",
+                        emoji = "🔢",
+                        iconBackground = Color(0xFFC8E6C9),
+                        tag = "sudoku_game_card",
+                        modifier = Modifier.weight(1f),
+                        onClick = { viewModel.selectGame(ActiveGame.SUDOKU) }
+                    )
+                }
+
+                // Game Row 3: Records & Badges
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     // Display best score indicator quick badge
                     Box(
                         modifier = Modifier
@@ -364,6 +380,47 @@ fun MainMenuScreen(
                                 )
                                 Text(
                                     text = "Snake: $snakeBest pts",
+                                    fontSize = 11.sp,
+                                    color = SophisticatedSubtext
+                                )
+                            }
+                        }
+                    }
+
+                    // Sudoku Best score indicator
+                    val sudokuBest by viewModel.sudokuHighScore.collectAsState()
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(72.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(SophisticatedSurface)
+                            .border(1.dp, SophisticatedOutline.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                            .padding(12.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFFFFCC80)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("🔢", fontSize = 18.sp)
+                            }
+                            Column {
+                                Text(
+                                    text = "Sudoku Best",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = SophisticatedText
+                                )
+                                Text(
+                                    text = "$sudokuBest pts",
                                     fontSize = 11.sp,
                                     color = SophisticatedSubtext
                                 )
@@ -452,7 +509,8 @@ fun MainMenuScreen(
                                 val (gameName, emoji, tint) = when (score.gameType) {
                                     "SNAKE" -> Triple("Neon Snake", "🐍", CyberGreen)
                                     "TIC_TAC_TOE" -> Triple("Cyber TTT", "♟️", CyberCyan)
-                                    else -> Triple("Cyber Match", "🧩", CyberPink)
+                                    "MEMORY" -> Triple("Cyber Match", "🧩", CyberPink)
+                                    else -> Triple("Cyber Sudoku", "🔢", Color(0xFFC8E6C9))
                                 }
                                 Box(
                                     modifier = Modifier
@@ -517,7 +575,7 @@ fun MainMenuScreen(
                     modifier = Modifier.weight(1f)
                 ) {
                     Text(
-                        text = "You have 3 offline games fully installed on device. Play anytime without Wi-Fi, cellular, or data.",
+                        text = "You have 4 offline games fully installed on device. Play anytime without Wi-Fi, cellular, or data.",
                         fontSize = 12.sp,
                         color = SophisticatedSubtext,
                         lineHeight = 16.sp
@@ -1400,6 +1458,456 @@ fun MemoryCardView(
                     tint = iconColor,
                     modifier = Modifier.size(28.dp)
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun SudokuScreen(
+    viewModel: GameViewModel,
+    modifier: Modifier = Modifier
+) {
+    val originalBoard = viewModel.sudokuOriginalBoard
+    val currentBoard = viewModel.sudokuCurrentBoard
+    val solutionBoard = viewModel.sudokuSolutionBoard
+    val selectedIndex = viewModel.selectedSudokuIndex
+    val difficulty = viewModel.sudokuDifficulty
+    val isGameOver = viewModel.isSudokuGameOver
+    val isPaused = viewModel.isSudokuPaused
+    val timeSec = viewModel.sudokuTimeSec
+    val errors = viewModel.sudokuErrors
+    val highScore by viewModel.sudokuHighScore.collectAsState()
+
+    // Ensure the timer is running when screen enters, unless paused
+    DisposableEffect(Unit) {
+        viewModel.startSudokuTimer()
+        onDispose {
+            viewModel.stopSudokuTimer()
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // --- TOP HEADER ---
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            IconButton(
+                onClick = { viewModel.selectGame(ActiveGame.NONE) },
+                modifier = Modifier.testTag("sudoku_back_button")
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = SophisticatedText
+                )
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "CYBER SUDOKU",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.SansSerif,
+                    color = SophisticatedPrimary
+                )
+                Text(
+                    text = "BEST SCORE: ${if (highScore > 0) highScore else "---"}",
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = SophisticatedSecondary
+                )
+            }
+            IconButton(
+                onClick = { viewModel.generateSudoku(difficulty) },
+                modifier = Modifier.testTag("sudoku_reset_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Refresh,
+                    contentDescription = "Reset Board",
+                    tint = SophisticatedText
+                )
+            }
+        }
+
+        // --- STATS BAR ---
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(SophisticatedSurface)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Difficulty Badge
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(SophisticatedAccent.copy(alpha = 0.3f))
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = difficulty,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = SophisticatedSecondary
+                )
+            }
+
+            // Mistakes Count
+            Text(
+                text = "MISTAKES: $errors/3",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                color = if (errors > 0) CyberPink else SophisticatedText
+            )
+
+            // Timer display
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.clickable { viewModel.toggleSudokuPause() }
+            ) {
+                Icon(
+                    imageVector = if (isPaused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
+                    contentDescription = "Pause/Resume",
+                    tint = SophisticatedPrimary,
+                    modifier = Modifier.size(16.dp)
+                )
+                val m = timeSec / 60
+                val s = timeSec % 60
+                Text(
+                    text = String.format("%02d:%02d", m, s),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    color = SophisticatedText
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // --- DIFFICULTY SELECTOR ROW ---
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            listOf("EASY", "MEDIUM", "HARD").forEach { level ->
+                val isSelected = difficulty == level
+                Button(
+                    onClick = { viewModel.generateSudoku(level) },
+                    modifier = Modifier.weight(1f).height(36.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isSelected) SophisticatedPrimary else SophisticatedSurface,
+                        contentColor = if (isSelected) SophisticatedOnPrimary else SophisticatedSubtext
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Text(text = level, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // --- SUDOKU BOARD ---
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(16.dp))
+                .background(SophisticatedSurface)
+                .border(2.dp, SophisticatedOutline, RoundedCornerShape(16.dp))
+                .padding(4.dp)
+        ) {
+            // Let's divide into 3x3 block layout
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                for (br in 0 until 3) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        for (bc in 0 until 3) {
+                            // Draw 3x3 block
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .border(1.dp, SophisticatedOutline.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                    .background(SophisticatedBackground.copy(alpha = 0.5f))
+                                    .padding(2.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxSize(),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    for (cr in 0 until 3) {
+                                        Row(
+                                            modifier = Modifier.weight(1f),
+                                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                        ) {
+                                            for (cc in 0 until 3) {
+                                                val globalRow = br * 3 + cr
+                                                val globalCol = bc * 3 + cc
+                                                val globalIndex = globalRow * 9 + globalCol
+
+                                                val originalValue = originalBoard.getOrElse(globalIndex) { 0 }
+                                                val currentValue = currentBoard.getOrElse(globalIndex) { 0 }
+                                                val isGiven = originalValue != 0
+                                                val isSelected = selectedIndex == globalIndex
+
+                                                val isConflict = currentValue != 0 && currentValue != solutionBoard.getOrElse(globalIndex) { 0 }
+
+                                                // Highlight cells in same row or column as selected cell
+                                                val selectedRow = if (selectedIndex != -1) selectedIndex / 9 else -1
+                                                val selectedCol = if (selectedIndex != -1) selectedIndex % 9 else -1
+                                                val isHighlighted = selectedIndex != -1 && (globalRow == selectedRow || globalCol == selectedCol)
+
+                                                val cellBg = when {
+                                                    isSelected -> SophisticatedPrimary.copy(alpha = 0.25f)
+                                                    isHighlighted -> SophisticatedPrimary.copy(alpha = 0.08f)
+                                                    else -> Color.Transparent
+                                                }
+
+                                                val cellTextColor = when {
+                                                    isGiven -> SophisticatedText
+                                                    isConflict -> CyberPink
+                                                    else -> SophisticatedSecondary
+                                                }
+
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .fillMaxHeight()
+                                                        .clip(RoundedCornerShape(4.dp))
+                                                        .background(cellBg)
+                                                        .clickable(enabled = !isGiven && !isGameOver && !isPaused) {
+                                                            viewModel.selectSudokuCell(globalIndex)
+                                                        },
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    if (currentValue != 0) {
+                                                        Text(
+                                                            text = currentValue.toString(),
+                                                            fontSize = 18.sp,
+                                                            fontWeight = if (isGiven) FontWeight.ExtraBold else FontWeight.Bold,
+                                                            color = cellTextColor
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // --- PAUSE OVERLAY ---
+            if (isPaused) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(SophisticatedBackground.copy(alpha = 0.95f))
+                        .clickable(enabled = false) {},
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Filled.Pause,
+                            contentDescription = "Paused",
+                            tint = SophisticatedPrimary,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "GAME PAUSED",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = SophisticatedText
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = { viewModel.toggleSudokuPause() },
+                            colors = ButtonDefaults.buttonColors(containerColor = SophisticatedPrimary),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text(text = "RESUME", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            // --- GAME OVER OVERLAY ---
+            if (isGameOver) {
+                val won = currentBoard == solutionBoard
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(SophisticatedBackground.copy(alpha = 0.95f))
+                        .clickable(enabled = false) {},
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        if (won) {
+                            Icon(
+                                imageVector = Icons.Filled.EmojiEvents,
+                                contentDescription = "Trophy",
+                                tint = SophisticatedPrimary,
+                                modifier = Modifier.size(56.dp)
+                            )
+                            Text(
+                                text = "SOLVED!",
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = SophisticatedPrimary
+                            )
+                            val m = timeSec / 60
+                            val s = timeSec % 60
+                            Text(
+                                text = "TIME: ${String.format("%02d:%02d", m, s)}",
+                                fontSize = 16.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = SophisticatedText
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Filled.Error,
+                                contentDescription = "Error",
+                                tint = CyberPink,
+                                modifier = Modifier.size(56.dp)
+                            )
+                            Text(
+                                text = "MISTAKES LIMIT MET",
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = CyberPink
+                            )
+                            Text(
+                                text = "Try another round!",
+                                fontSize = 14.sp,
+                                color = SophisticatedSubtext
+                            )
+                        }
+
+                        Button(
+                            onClick = { viewModel.generateSudoku(difficulty) },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = SophisticatedPrimary,
+                                contentColor = SophisticatedOnPrimary
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text(text = "NEW GAME", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // --- KEYPAD CONTROLS ---
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Grid of 1..5 numbers
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                for (num in 1..5) {
+                    Button(
+                        onClick = { viewModel.inputSudokuNumber(num) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = SophisticatedSurface,
+                            contentColor = SophisticatedText
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Text(
+                            text = num.toString(),
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                for (num in 6..9) {
+                    Button(
+                        onClick = { viewModel.inputSudokuNumber(num) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = SophisticatedSurface,
+                            contentColor = SophisticatedText
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Text(
+                            text = num.toString(),
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                // Erase Button
+                Button(
+                    onClick = { viewModel.clearSudokuCell() },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = SophisticatedAccent,
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Delete,
+                        contentDescription = "Clear Cell",
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
         }
     }

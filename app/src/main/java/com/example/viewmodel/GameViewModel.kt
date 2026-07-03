@@ -21,7 +21,7 @@ import kotlin.random.Random
 
 // --- Game Navigation States ---
 enum class ActiveGame {
-    NONE, SNAKE, TIC_TAC_TOE, MEMORY
+    NONE, SNAKE, TIC_TAC_TOE, MEMORY, SUDOKU
 }
 
 // --- Snake Game Components ---
@@ -48,6 +48,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     val snakeHighScore: StateFlow<Int>
     val ticTacToeHighScore: StateFlow<Int>
     val memoryHighScore: StateFlow<Int>
+    val sudokuHighScore: StateFlow<Int>
 
     init {
         val database = GameDatabase.getDatabase(application)
@@ -76,6 +77,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = 0
         )
+
+        sudokuHighScore = repository.getHighScore("SUDOKU").stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = 0
+        )
     }
 
     // --- Active Screen/Game State ---
@@ -84,13 +91,16 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectGame(game: ActiveGame) {
         _activeGame.value = game
+        // Stop any running background game loops or timers
+        stopSnakeLoop()
+        stopSudokuTimer()
+        
         when (game) {
             ActiveGame.SNAKE -> resetSnakeGame()
             ActiveGame.TIC_TAC_TOE -> resetTicTacToeGame()
             ActiveGame.MEMORY -> resetMemoryGame()
-            ActiveGame.NONE -> {
-                stopSnakeLoop()
-            }
+            ActiveGame.SUDOKU -> generateSudoku("EASY")
+            ActiveGame.NONE -> {}
         }
     }
 
@@ -476,8 +486,224 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // --- SUDOKU GAME LOGIC ---
+    var sudokuOriginalBoard by mutableStateOf(List(81) { 0 })
+        private set
+    var sudokuCurrentBoard by mutableStateOf(List(81) { 0 })
+        private set
+    var sudokuSolutionBoard by mutableStateOf(List(81) { 0 })
+        private set
+    var selectedSudokuIndex by mutableStateOf(-1)
+        private set
+    var sudokuDifficulty by mutableStateOf("EASY") // "EASY", "MEDIUM", "HARD"
+        private set
+    var isSudokuGameOver by mutableStateOf(false)
+        private set
+    var isSudokuPaused by mutableStateOf(false)
+        private set
+    var sudokuTimeSec by mutableStateOf(0)
+        private set
+    var sudokuErrors by mutableStateOf(0)
+        private set
+
+    private var sudokuTimerJob: Job? = null
+
+    fun startSudokuTimer() {
+        stopSudokuTimer()
+        sudokuTimerJob = viewModelScope.launch {
+            while (!isSudokuGameOver && !isSudokuPaused && _activeGame.value == ActiveGame.SUDOKU) {
+                delay(1000)
+                sudokuTimeSec++
+            }
+        }
+    }
+
+    fun stopSudokuTimer() {
+        sudokuTimerJob?.cancel()
+        sudokuTimerJob = null
+    }
+
+    fun toggleSudokuPause() {
+        if (isSudokuGameOver) return
+        isSudokuPaused = !isSudokuPaused
+        if (!isSudokuPaused) {
+            startSudokuTimer()
+        } else {
+            stopSudokuTimer()
+        }
+    }
+
+    fun generateSudoku(difficulty: String) {
+        sudokuDifficulty = difficulty
+        isSudokuGameOver = false
+        isSudokuPaused = false
+        sudokuTimeSec = 0
+        sudokuErrors = 0
+        selectedSudokuIndex = -1
+
+        // Create a resolved board
+        val solved = Array(9) { IntArray(9) { 0 } }
+        fillSudoku(solved)
+
+        // Store solution
+        val solutionList = mutableListOf<Int>()
+        for (r in 0 until 9) {
+            for (c in 0 until 9) {
+                solutionList.add(solved[r][c])
+            }
+        }
+        sudokuSolutionBoard = solutionList
+
+        // Remove elements to create puzzle
+        val puzzle = Array(9) { IntArray(9) { 0 } }
+        for (r in 0 until 9) {
+            for (c in 0 until 9) {
+                puzzle[r][c] = solved[r][c]
+            }
+        }
+
+        val cellsToRemove = when (difficulty) {
+            "EASY" -> 35
+            "MEDIUM" -> 46
+            else -> 54 // "HARD"
+        }
+
+        var removed = 0
+        val cellIndices = (0 until 81).shuffled()
+        for (idx in cellIndices) {
+            if (removed >= cellsToRemove) break
+            val r = idx / 9
+            val c = idx % 9
+            if (puzzle[r][c] != 0) {
+                puzzle[r][c] = 0
+                removed++
+            }
+        }
+
+        val originalList = mutableListOf<Int>()
+        for (r in 0 until 9) {
+            for (c in 0 until 9) {
+                originalList.add(puzzle[r][c])
+            }
+        }
+        sudokuOriginalBoard = originalList
+        sudokuCurrentBoard = originalList.toList()
+
+        startSudokuTimer()
+    }
+
+    private fun fillSudoku(board: Array<IntArray>): Boolean {
+        for (row in 0 until 9) {
+            for (col in 0 until 9) {
+                if (board[row][col] == 0) {
+                    val numbers = (1..9).shuffled()
+                    for (num in numbers) {
+                        if (isSudokuSafe(board, row, col, num)) {
+                            board[row][col] = num
+                            if (fillSudoku(board)) {
+                                return true
+                            }
+                            board[row][col] = 0
+                        }
+                    }
+                    return false // backtrack
+                }
+            }
+        }
+        return true
+    }
+
+    private fun isSudokuSafe(board: Array<IntArray>, row: Int, col: Int, num: Int): Boolean {
+        // Row check
+        for (d in 0 until 9) {
+            if (board[row][d] == num) {
+                return false
+            }
+        }
+
+        // Column check
+        for (r in 0 until 9) {
+            if (board[r][col] == num) {
+                return false
+            }
+        }
+
+        // Box check
+        val boxRowStart = row - row % 3
+        val boxColStart = col - col % 3
+        for (r in boxRowStart until boxRowStart + 3) {
+            for (d in boxColStart until boxColStart + 3) {
+                if (board[r][d] == num) {
+                    return false
+                }
+            }
+        }
+        return true
+    }
+
+    fun selectSudokuCell(index: Int) {
+        if (isSudokuGameOver || isSudokuPaused) return
+        // Only allow selecting non-given cells
+        if (sudokuOriginalBoard[index] == 0) {
+            selectedSudokuIndex = index
+        }
+    }
+
+    fun inputSudokuNumber(num: Int) {
+        val index = selectedSudokuIndex
+        if (index == -1 || isSudokuGameOver || isSudokuPaused) return
+        if (sudokuOriginalBoard[index] != 0) return // Given cell, cannot edit
+
+        val currentList = sudokuCurrentBoard.toMutableList()
+        currentList[index] = num
+        sudokuCurrentBoard = currentList
+
+        // Check if correct against solution
+        if (num != 0 && num != sudokuSolutionBoard[index]) {
+            // Mistake!
+            sudokuErrors++
+            if (sudokuErrors >= 3) {
+                onSudokuGameOver(won = false)
+            }
+        } else {
+            // Check win condition (all cells filled correctly)
+            if (sudokuCurrentBoard == sudokuSolutionBoard) {
+                onSudokuGameOver(won = true)
+            }
+        }
+    }
+
+    fun clearSudokuCell() {
+        val index = selectedSudokuIndex
+        if (index == -1 || isSudokuGameOver || isSudokuPaused) return
+        if (sudokuOriginalBoard[index] != 0) return
+
+        val currentList = sudokuCurrentBoard.toMutableList()
+        currentList[index] = 0
+        sudokuCurrentBoard = currentList
+    }
+
+    private fun onSudokuGameOver(won: Boolean) {
+        isSudokuGameOver = true
+        stopSudokuTimer()
+        if (won) {
+            // Score = 5000 base - (time in seconds)
+            // Harder difficulty gives extra base points!
+            val difficultyBonus = when (sudokuDifficulty) {
+                "MEDIUM" -> 1000
+                "HARD" -> 2000
+                else -> 0
+            }
+            val finalScore = (5000 + difficultyBonus - sudokuTimeSec).coerceAtLeast(500)
+            viewModelScope.launch {
+                repository.insertScore("SUDOKU", finalScore)
+            }
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         stopSnakeLoop()
+        stopSudokuTimer()
     }
 }
